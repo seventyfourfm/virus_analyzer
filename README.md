@@ -51,6 +51,7 @@ venv\Scripts\activate
 pip install pefile capstone
 python analyzer.py srs.exe
 ```
+
 ### Example output
 ```
 ======================================================================
