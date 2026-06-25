@@ -1,4 +1,4 @@
-# m malware-analysis
+# malware-analysis
 
 A simple Python tool I built to quickly figure out what a suspicious .exe file does - without actually running it. 
 
@@ -14,13 +14,11 @@ You feed it an .exe file, it tells you:
 
 ## Why I made this
 
-bored + intresting project
+bored + interesting project
 
 ## Getting it running
 
-You need Python installed. Then:
-
-Open CMD and:
+You need Python installed. Then open CMD:
 
 ```bash
 # Go to your desktop (or wherever you work from)
@@ -45,10 +43,15 @@ pip install pefile capstone
 
 # Done. Copy your suspicious file into this folder and run:
 python analyzer.py your_file.exe
+
+#If you already have the files
+cd C:\Users\YourName\Desktop\malware-analysis
+python -m venv venv
+venv\Scripts\activate
+pip install pefile capstone
+python analyzer.py srs.exe
 ```
-
-
-## Example
+### Example output
 ```
 ======================================================================
   MALWARE ANALYZER v2 - Auto-Save Enabled
