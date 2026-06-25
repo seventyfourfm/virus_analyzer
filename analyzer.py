@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Malware Analyzer - A tool for analyzing Windows executable files for suspicious patterns
-This tool performs static analysis on PE files to identify potential malware indicators
-"""
 
 import sys
 import os
