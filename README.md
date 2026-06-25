@@ -1,4 +1,4 @@
-# m virus_analyzer
+# m malware-analysis
 
 A simple Python tool I built to quickly figure out what a suspicious .exe file does - without actually running it. 
 
@@ -31,8 +31,8 @@ mkdir malware-analysis
 cd malware-analysis
 
 # Grab the code
-git clone https://github.com/seventyfourfm/virus_analyzer.git
-cd m virus_analyzer
+git clone https://github.com/seventyfourfm/malware-analysis.git
+cd malware-analysis
 
 # Set up a virtual environment so you don't mess up your Python install
 python -m venv venv
