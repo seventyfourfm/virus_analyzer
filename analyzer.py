@@ -16,7 +16,7 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 import time
 from collections import defaultdict
 
-# Security imports with fallbacks
+# Try to import optional security libraries
 try:
     import pefile
     PEFILE_AVAILABLE = True
@@ -48,25 +48,25 @@ except ImportError:
     MAGIC_AVAILABLE = False
     print("[!] python-magic not available - MIME detection disabled")
 
-# Setup logging
+# Basic logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class MalwareAnalyzerPro:
-    """Advanced malware analyzer with comprehensive analysis capabilities"""
+    """Main analyzer class that handles all the malware analysis work"""
     
     def __init__(self, filepath: str, config: Dict[str, Any] = None):
-        """Initialize the analyzer with file path and configuration"""
+        """Set up the analyzer with the file we want to examine"""
         self.filepath = Path(filepath)
         if not self.filepath.exists():
             raise FileNotFoundError(f"File not found: {filepath}")
         
-        # Load configuration
+        # Store configuration settings
         self.config = config or {}
         self.verbose = self.config.get('verbose', False)
         self.quick_mode = self.config.get('quick_mode', False)
         
-        # Read file data
+        # Read the file into memory
         with open(filepath, 'rb') as f:
             self.data = f.read()
         
@@ -95,7 +95,7 @@ class MalwareAnalyzerPro:
             'disassembly': {}
         }
         
-        # Try to parse as PE file
+        # Check if it's a Windows executable
         if self.data[:2] == b'MZ':
             try:
                 self.pe = pefile.PE(data=self.data)
@@ -109,7 +109,7 @@ class MalwareAnalyzerPro:
             logger.warning(f"File does not appear to be a PE executable: {self.filename}")
 
     def _entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy of data"""
+        """Calculate how random a chunk of data is using Shannon entropy"""
         if not data:
             return 0.0
         entropy = 0
@@ -123,7 +123,7 @@ class MalwareAnalyzerPro:
         return entropy
 
     def _hex_dump(self, data: bytes, length: int = 16) -> str:
-        """Create hex dump for debugging"""
+        """Create a readable hex dump for debugging"""
         result = []
         for i in range(0, min(len(data), 256), length):
             chunk = data[i:i+length]
@@ -133,17 +133,17 @@ class MalwareAnalyzerPro:
         return '\n'.join(result)
 
     def header(self, title: str):
-        """Print formatted section header"""
+        """Print a nice section header"""
         print(f"\n{'='*80}")
         print(f"  {title}")
         print(f"{'='*80}")
 
     def _resolve_api_name(self, address: int) -> Optional[str]:
-        """Resolve address to API name if possible"""
+        """Try to figure out what API function an address belongs to"""
         if not self.pe:
             return None
         
-        # Check imports for matching RVA
+        # Look through imported functions
         if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in self.pe.DIRECTORY_ENTRY_IMPORT:
                 try:
@@ -160,13 +160,13 @@ class MalwareAnalyzerPro:
                     pass
         return None
 
-    # ============ ANALYSIS MODULES ============
+    # ============ ANALYSIS FUNCTIONS ============
 
     def basic_info(self):
-        """Enhanced basic file information with additional metadata"""
+        """Get the basic file information and hashes"""
         self.header("BASIC FILE INFORMATION")
         
-        # Calculate hashes
+        # Calculate all the hash values
         md5_hash = hashlib.md5(self.data).hexdigest()
         sha1_hash = hashlib.sha1(self.data).hexdigest()
         sha256_hash = hashlib.sha256(self.data).hexdigest()
@@ -179,7 +179,7 @@ class MalwareAnalyzerPro:
         print(f"  SHA256:            {sha256_hash}")
         print(f"  SHA512:            {sha512_hash[:16]}...")
         
-        # Store hashes for later
+        # Save hashes for later use
         self.results['file_info']['hashes'] = {
             'md5': md5_hash,
             'sha1': sha1_hash,
@@ -187,7 +187,7 @@ class MalwareAnalyzerPro:
             'sha512': sha512_hash
         }
         
-        # MIME type detection
+        # Try to detect file type using magic library
         if MAGIC_AVAILABLE:
             try:
                 mime = magic.from_buffer(self.data, mime=True)
@@ -196,25 +196,25 @@ class MalwareAnalyzerPro:
             except:
                 pass
         
-        # Check for multiple MZ headers (binder detection)
+        # Check for multiple MZ headers (could indicate file binder)
         mz_count = len(re.findall(b'MZ', self.data))
         if mz_count > 1:
             print(f"  [!] Multiple MZ headers: {mz_count} (possible binder)")
             self.results['indicators'].append(f"Multiple MZ headers ({mz_count}) - potential file binder")
         
-        # PE-specific information
+        # If it's a valid PE file, get more details
         if self.pe:
             print(f"  Type:              PE Executable")
             print(f"  Machine:           {hex(self.pe.FILE_HEADER.Machine)}")
             print(f"  Number of Sections: {self.pe.FILE_HEADER.NumberOfSections}")
             
-            # Timestamp analysis
+            # Check the compile timestamp
             timestamp = self.pe.FILE_HEADER.TimeDateStamp
             if timestamp:
                 try:
                     dt = datetime.datetime.fromtimestamp(timestamp)
                     print(f"  Compile Date:      {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    # Check for suspicious date (future or very old)
+                    # Flag suspicious timestamps
                     if dt.year > datetime.datetime.now().year + 1:
                         print(f"    [!] Future timestamp! (possible tampering)")
                         self.results['indicators'].append("Future compile timestamp")
@@ -231,11 +231,11 @@ class MalwareAnalyzerPro:
             print(f"  Image Base:        {hex(image_base)}")
             print(f"  Entry Point VA:    {hex(image_base + entry_rva)}")
             
-            # Architecture detection
+            # Figure out architecture
             arch = "x64" if self.pe.FILE_HEADER.Machine == 0x8664 else "x86"
             print(f"  Architecture:      {arch}")
             
-            # Subsystem
+            # Check subsystem type
             subsystem = self.pe.OPTIONAL_HEADER.Subsystem
             subsystem_names = {
                 1: "Native", 2: "Windows GUI", 3: "Windows CUI", 
@@ -243,7 +243,7 @@ class MalwareAnalyzerPro:
             }
             print(f"  Subsystem:         {subsystem_names.get(subsystem, f'Unknown ({subsystem})')}")
             
-            # DLL characteristics
+            # Check security features
             dll_char = self.pe.OPTIONAL_HEADER.DllCharacteristics
             if dll_char:
                 flags = []
@@ -266,7 +266,7 @@ class MalwareAnalyzerPro:
             }
 
     def section_analysis(self):
-        """Enhanced section analysis with advanced metrics"""
+        """Analyze each section of the executable"""
         if not self.pe:
             return
         
@@ -284,11 +284,11 @@ class MalwareAnalyzerPro:
                 virt_size = section.Misc_VirtualSize
                 raw_size = section.SizeOfRawData
                 
-                # Get section data
+                # Get section content and calculate entropy
                 section_data_bytes = section.get_data()
                 entropy = self._entropy(section_data_bytes) if section_data_bytes else 0.0
                 
-                # Calculate entropy in chunks for trend analysis
+                # See how entropy changes across the section
                 entropy_trend = ""
                 if section_data_bytes and len(section_data_bytes) > 1024:
                     chunk_size = len(section_data_bytes) // 4
@@ -309,14 +309,14 @@ class MalwareAnalyzerPro:
                                 trend.append("→")
                         entropy_trend = ''.join(trend[:4])
                 
-                # Section permissions
+                # Check what permissions the section has
                 perms = []
                 if section.Characteristics & 0x20000000: perms.append("X")
                 if section.Characteristics & 0x40000000: perms.append("R")
                 if section.Characteristics & 0x80000000: perms.append("W")
                 perm_str = ''.join(perms) if perms else "NONE"
                 
-                # Suspicious flags
+                # Look for suspicious flags
                 flags = []
                 if entropy > 7.5:
                     flags.append("[!HIGH ENTROPY]")
@@ -329,7 +329,7 @@ class MalwareAnalyzerPro:
                 if virt_size > raw_size * 5 and raw_size > 0:
                     flags.append("[!UNPACKED]")
                 
-                # Check for common packer section names
+                # Known packer section names
                 packer_sections = {
                     '.upx': 'UPX', '.upx1': 'UPX', '.upx2': 'UPX',
                     '.aspack': 'ASPack', '.mpress': 'MPRESS', 
@@ -343,7 +343,7 @@ class MalwareAnalyzerPro:
                 
                 print(f"  {name:<12} {virt_size:<10} {raw_size:<10} {entropy:<8.3f} {perm_str:<8} {entropy_trend:<12} {' '.join(flags)}")
                 
-                # Store for later analysis
+                # Store for later
                 section_data.append({
                     'name': name,
                     'virtual_size': virt_size,
@@ -360,7 +360,7 @@ class MalwareAnalyzerPro:
         
         self.results['sections'] = section_data
         
-        # Calculate overall file entropy
+        # Overall file entropy
         total_entropy = self._entropy(self.data)
         print(f"\n  Overall File Entropy: {total_entropy:.3f}")
         if total_entropy > 7.8:
@@ -368,13 +368,13 @@ class MalwareAnalyzerPro:
             self.results['indicators'].append(f"High overall entropy: {total_entropy:.2f}")
 
     def import_analysis(self):
-        """Enhanced import analysis with malware API categorization"""
+        """Look at what functions the file imports - tells us what it can do"""
         if not self.pe:
             return
         
         self.header("IMPORT ANALYSIS")
         
-        # Comprehensive malware API categories
+        # Common malicious API categories
         suspicious_apis = {
             'Process Manipulation': [
                 'CreateRemoteThread', 'VirtualAllocEx', 'WriteProcessMemory',
@@ -457,7 +457,7 @@ class MalwareAnalyzerPro:
         total_imports = 0
         import_list = []
         
-        # Parse imports
+        # Go through all imports
         if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in self.pe.DIRECTORY_ENTRY_IMPORT:
                 try:
@@ -476,7 +476,7 @@ class MalwareAnalyzerPro:
                                 if api in apis:
                                     found_imports[category].add(f"{dll}!{api}")
                                     
-                                    # Add to behaviors
+                                    # Track behaviors
                                     if api in ['CreateRemoteThread', 'VirtualAllocEx']:
                                         self.results['behaviors'].append("Process Injection")
                                     if api in ['RegCreateKeyEx', 'RegSetValueEx']:
@@ -501,7 +501,7 @@ class MalwareAnalyzerPro:
         
         print(f"  Total Imports: {total_imports}")
         
-        # Display categorized suspicious imports
+        # Show suspicious imports
         if found_imports:
             print(f"\n  [ALERT] Suspicious API Usage Found!")
             for category, apis in sorted(found_imports.items()):
@@ -520,7 +520,7 @@ class MalwareAnalyzerPro:
         }
 
     def export_analysis(self):
-        """Analyze exported functions for potential malicious exports"""
+        """Check what functions the file exports"""
         if not self.pe or not hasattr(self.pe, 'DIRECTORY_ENTRY_EXPORT'):
             return
         
@@ -559,7 +559,7 @@ class MalwareAnalyzerPro:
             print("  No exports found (typical for executables)")
 
     def resource_analysis(self):
-        """Comprehensive resource analysis for embedded payloads"""
+        """Look at embedded resources for hidden payloads"""
         if not self.pe or not hasattr(self.pe, 'DIRECTORY_ENTRY_RESOURCE'):
             return
         
@@ -591,7 +591,7 @@ class MalwareAnalyzerPro:
                             size = lang_entry.data.struct.Size
                             total_resources += 1
                             
-                            # Extract resource data
+                            # Extract the actual resource data
                             data = None
                             try:
                                 data = self.pe.get_data(data_rva, size)
@@ -601,7 +601,7 @@ class MalwareAnalyzerPro:
                             if data:
                                 entropy = self._entropy(data)
                                 
-                                # Check for PE payload
+                                # Check for embedded executable
                                 if data[:2] == b'MZ':
                                     embedded_pes.append(f"Embedded PE in {res_type} ({size} bytes)")
                                     suspicious_resources.append(f"EMBEDDED PE in {res_type}")
@@ -652,7 +652,7 @@ class MalwareAnalyzerPro:
                 self.results['indicators'].append(f"Suspicious resource: {item}")
 
     def tls_analysis(self):
-        """Analyze TLS callbacks (run before entry point)"""
+        """Check TLS callbacks - these run before the main program starts"""
         if not self.pe or not hasattr(self.pe, 'DIRECTORY_ENTRY_TLS'):
             return
         
@@ -675,7 +675,7 @@ class MalwareAnalyzerPro:
                         callbacks = []
                         pos = offset
                         while True:
-                            # Read callback address (4 or 8 bytes depending on architecture)
+                            # Read callback address (4 or 8 bytes)
                             arch_size = 8 if self.pe.FILE_HEADER.Machine == 0x8664 else 4
                             callback_data = self.data[pos:pos+arch_size]
                             if len(callback_data) < arch_size:
@@ -699,7 +699,7 @@ class MalwareAnalyzerPro:
             print("  No TLS callbacks found")
 
     def certificate_analysis(self):
-        """Analyze digital signatures and certificates"""
+        """Check if the file has a digital signature"""
         if not self.pe or not hasattr(self.pe, 'DIRECTORY_ENTRY_SECURITY'):
             return
         
@@ -710,15 +710,13 @@ class MalwareAnalyzerPro:
             print(f"  [INFO] Digital Certificate Present")
             print(f"  Certificate Size: {len(security)} bytes")
             
-            # Try to extract basic certificate info
+            # Try to extract certificate info
             try:
-                # Check if certificate is valid (simplified)
                 cert_data = security.get_data()
                 if cert_data:
-                    # Look for common certificate info
                     cert_info = {}
                     
-                    # Simple check for common issuer names (pattern matching)
+                    # Look for common certificate fields
                     patterns = {
                         b'CN=': 'Common Name',
                         b'O=': 'Organization',
@@ -730,7 +728,6 @@ class MalwareAnalyzerPro:
                     
                     for pattern, label in patterns.items():
                         if pattern in cert_data:
-                            # Extract substring
                             idx = cert_data.find(pattern)
                             end = cert_data.find(b'\x00', idx)
                             if end > idx:
@@ -750,19 +747,17 @@ class MalwareAnalyzerPro:
             self.results['indicators'].append("No digital certificate (unsigned)")
 
     def pe_rich_header(self):
-        """Analyze Rich Header for compiler/linker information"""
+        """Look for compiler/linker information in the rich header"""
         if not self.pe:
             return
         
         self.header("RICH HEADER ANALYSIS")
         
         try:
-            # Rich header parsing (simplified)
             if hasattr(self.pe, 'RICH_HEADER') and self.pe.RICH_HEADER:
                 rich = self.pe.RICH_HEADER
                 print(f"  Rich Header Found!")
                 
-                # Tool information
                 tool_list = []
                 for entry in rich._entries:
                     if entry.toolid and entry.version:
@@ -777,7 +772,7 @@ class MalwareAnalyzerPro:
             logger.debug(f"Error parsing Rich Header: {e}")
 
     def debug_info_analysis(self):
-        """Analyze debug information present in the PE"""
+        """Analyze debug information in the file"""
         if not self.pe:
             return
         
@@ -790,7 +785,6 @@ class MalwareAnalyzerPro:
                 
                 for idx, debug_entry in enumerate(debug_dir):
                     try:
-                        # Parse debug entry
                         debug_type = debug_entry.struct.Type
                         debug_types = {
                             1: 'IMAGE_DEBUG_TYPE_COFF',
@@ -812,20 +806,19 @@ class MalwareAnalyzerPro:
                         print(f"    RVA: {hex(debug_entry.struct.AddressOfRawData)}")
                         print(f"    Timestamp: {debug_entry.struct.TimeDateStamp}")
                         
-                        # Try to extract CodeView info
+                        # Try to find CodeView debug info
                         if debug_type == 2:  # CodeView
                             try:
                                 offset = self.pe.get_offset_from_rva(debug_entry.struct.AddressOfRawData)
                                 if offset:
                                     cv_data = self.data[offset:offset+debug_entry.struct.SizeOfData]
                                     if cv_data:
-                                        # Check for PDB path
+                                        # Look for PDB path
                                         pdb_match = re.search(b'[A-Za-z]:\\\\[^\\x00]+\.pdb', cv_data)
                                         if pdb_match:
                                             pdb_path = pdb_match.group().decode('utf-8', errors='ignore')
                                             print(f"    PDB Path: {pdb_path}")
                                             
-                                            # PDB path analysis
                                             if 'visualstudio' in pdb_path.lower():
                                                 print(f"      [+] Visual Studio build")
                                             if 'release' in pdb_path.lower():
@@ -842,7 +835,7 @@ class MalwareAnalyzerPro:
             print("  No debug directory present")
 
     def string_analysis(self, min_length: int = 4):
-        """Enhanced string analysis with classification and scoring"""
+        """Find and classify strings in the file"""
         self.header("STRING ANALYSIS AND CLASSIFICATION")
         
         # Find ASCII strings
@@ -864,7 +857,7 @@ class MalwareAnalyzerPro:
             except:
                 pass
         
-        # Comprehensive pattern categories
+        # Patterns to look for
         patterns = {
             'URL': r'https?://[^\s<>"]+|www\.[^\s<>"]+',
             'IP Address': r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?',
@@ -907,13 +900,13 @@ class MalwareAnalyzerPro:
                     matched_patterns.append(cat)
             
             if score > 0:
-                # Additional scoring factors
+                # Extra scoring
                 if len(s) > 50:
                     score += 1
                 if re.search(r'[A-Za-z0-9+/]{30,}={0,2}', s):
-                    score += 2  # Base64-like
+                    score += 2
                 if re.search(r'[A-Fa-f0-9]{32,}', s):
-                    score += 2  # Hash-like
+                    score += 2
                 
                 scored_strings.append({
                     'string': s,
@@ -926,7 +919,7 @@ class MalwareAnalyzerPro:
         # Sort by score
         scored_strings.sort(key=lambda x: x['score'], reverse=True)
         
-        # Display results
+        # Show results
         if scored_strings:
             print(f"\n  Top {min(30, len(scored_strings))} Suspicious Strings:")
             for i, item in enumerate(scored_strings[:30], 1):
@@ -935,21 +928,18 @@ class MalwareAnalyzerPro:
                 if len(item['string']) > 150:
                     display_str += "..."
                 print(f"      {display_str}")
-                
-                # Show offset if we know it (optional)
-                # Could add position tracking
         else:
             print("  No strings matched suspicious patterns")
         
         # Store results
-        self.results['strings'] = scored_strings[:50]  # Store top 50
+        self.results['strings'] = scored_strings[:50]
 
     def anti_debug_vm_detection(self):
-        """Comprehensive anti-debug and VM detection analysis"""
+        """Look for anti-debugging and VM detection techniques"""
         self.header("ANTI-DEBUG & VM DETECTION")
         
         detection_patterns = {
-            # VM detection patterns
+            # VM detection
             'vbox': 'VirtualBox detection',
             'vmware': 'VMware detection',
             'vmscsi': 'VMware storage',
@@ -1015,7 +1005,7 @@ class MalwareAnalyzerPro:
                 if 'VM' in description or 'Virtual' in description:
                     self.results['anti_analysis'].append(description)
         
-        # Search in imports for anti-debug API
+        # Search in imports
         if self.pe and hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in self.pe.DIRECTORY_ENTRY_IMPORT:
                 try:
@@ -1040,7 +1030,7 @@ class MalwareAnalyzerPro:
         return found_patterns
 
     def packer_detection(self):
-        """Advanced packer detection using multiple techniques"""
+        """Detect if the file is packed with a known packer"""
         if not self.pe:
             return
         
@@ -1054,7 +1044,7 @@ class MalwareAnalyzerPro:
             'pyinstaller': False
         }
         
-        # Check for PyInstaller artifacts
+        # Check for PyInstaller
         if b'PyInstaller' in self.data or b'_MEI' in self.data or b'pyi-windows' in self.data:
             packer_info['pyinstaller'] = True
             print("  [!!!] PYINSTALLER PACKED FILE DETECTED")
@@ -1066,7 +1056,7 @@ class MalwareAnalyzerPro:
             print("  [!] Python artifacts found")
             self.results['indicators'].append("Python-related artifacts found")
         
-        # 1. Section-based detection
+        # Section-based detection
         for section in self.pe.sections:
             try:
                 name = section.Name.decode('utf-8', errors='ignore').strip('\x00')
@@ -1099,14 +1089,14 @@ class MalwareAnalyzerPro:
                 if name.lower() in packer_patterns:
                     packer_info['sections'].append(f"{name}: {packer_patterns[name.lower()]}")
                     
-                # Check for high entropy sections (indicative of packing)
+                # High entropy sections
                 if entropy > 7.5 and len(data) > 1024:
                     packer_info['entropy'].append(f"{name}: entropy={entropy:.2f}")
                     
             except:
                 pass
         
-        # 2. Import-based detection (packed files have minimal imports)
+        # Import-based detection (packed files have few imports)
         import_count = 0
         if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for entry in self.pe.DIRECTORY_ENTRY_IMPORT:
@@ -1115,10 +1105,9 @@ class MalwareAnalyzerPro:
         if import_count < 10:
             packer_info['imports'].append(f"Low import count ({import_count}) - possible packing")
         
-        # 3. Entry point analysis
+        # Entry point analysis
         try:
             ep_rva = self.pe.OPTIONAL_HEADER.AddressOfEntryPoint
-            # Check if entry point is in the first section or a custom section
             ep_section = None
             for section in self.pe.sections:
                 if section.contains_rva(ep_rva):
@@ -1133,7 +1122,7 @@ class MalwareAnalyzerPro:
         except:
             pass
         
-        # Display results
+        # Show results
         if any(packer_info.values()):
             print("  Packing Indicators Found:")
             
@@ -1163,17 +1152,15 @@ class MalwareAnalyzerPro:
                 for item in packer_info['entry_point']:
                     print(f"    - {item}")
             
-            # Update packer info
             self.results['packer_info'] = packer_info
             
-            # Add indicators
             if packer_info['sections'] or packer_info['entropy'] or packer_info['pyinstaller']:
                 self.results['indicators'].append("Packed executable detected")
         else:
             print("  No packer indicators found (could still be custom packed)")
 
     def disassembly_analysis(self, count: int = 50):
-        """Advanced disassembly with API resolution and pattern detection"""
+        """Disassemble the entry point to see what it does"""
         if not CAPSTONE_AVAILABLE or not self.pe:
             return
         
@@ -1210,17 +1197,16 @@ class MalwareAnalyzerPro:
                 va = self.pe.OPTIONAL_HEADER.ImageBase + insn.address
                 hex_bytes = ' '.join(f'{b:02x}' for b in insn.bytes)
                 
-                # Detect interesting patterns
+                # Look for interesting patterns
                 comment = ""
                 mnemonic = insn.mnemonic
                 op_str = insn.op_str
                 
-                # API call detection - try to resolve
+                # Try to resolve API calls
                 if mnemonic in ['call', 'jmp']:
                     if '[' in op_str or 'ptr' in op_str:
                         comment = " [indirect call]"
                     
-                    # Try to resolve call target
                     if '0x' in op_str:
                         try:
                             target = int(op_str.split('0x')[-1], 16)
@@ -1244,7 +1230,7 @@ class MalwareAnalyzerPro:
                     comment = " [timing check]"
                     self.results['anti_analysis'].append("RDTSC timing check")
                 
-                # Output instruction
+                # Print instruction
                 print(f"  {hex(va):<16} | {hex_bytes:<32} | {mnemonic:<10} {op_str:<30}{comment}")
                 
                 # Store instruction
@@ -1258,7 +1244,7 @@ class MalwareAnalyzerPro:
                 
                 icount += 1
             
-            # Look for suspicious patterns in the disassembly
+            # Look for suspicious patterns
             if instructions:
                 pattern_result = self._detect_malware_patterns(instructions)
                 if pattern_result:
@@ -1277,12 +1263,12 @@ class MalwareAnalyzerPro:
             logger.debug(f"Disassembly error: {e}")
 
     def _detect_malware_patterns(self, instructions: List[Dict]) -> List[str]:
-        """Detect common malware patterns in disassembly"""
+        """Look for common malicious code patterns"""
         patterns = []
         
-        # Check for common obfuscation patterns
+        # Check for obfuscation patterns
         if len(instructions) >= 3:
-            # XOR decryption pattern
+            # XOR decryption loop
             xor_pattern = 0
             for i in range(len(instructions) - 2):
                 if ('xor' in instructions[i]['mnemonic'] and
@@ -1300,7 +1286,7 @@ class MalwareAnalyzerPro:
                     patterns.append("call/pop pattern - possible get EIP technique")
                     break
         
-        # Check for API hashing (common in malware)
+        # Check for API hashing
         hash_pattern = 0
         for insn in instructions:
             if any(x in insn['mnemonic'] for x in ['shr', 'shl', 'ror', 'rol']):
@@ -1320,7 +1306,7 @@ class MalwareAnalyzerPro:
         return patterns
 
     def behavioral_analysis(self):
-        """Generate comprehensive behavioral analysis based on imports"""
+        """Figure out what the file might do based on its imports"""
         if not self.pe:
             return
         
@@ -1337,7 +1323,7 @@ class MalwareAnalyzerPro:
                 if imp.name:
                     imports.add(imp.name.decode('utf-8', errors='ignore'))
         
-        # Define behavior patterns with confidence levels
+        # Behavior patterns
         behavior_patterns = {
             'File System Manipulation': {
                 'apis': ['CreateFile', 'WriteFile', 'ReadFile', 'DeleteFile', 
@@ -1430,16 +1416,15 @@ class MalwareAnalyzerPro:
                 if len(behavior['apis']) > 5:
                     print(f"    ... and {len(behavior['apis'])-5} more")
             
-            # Store behaviors
             self.results['behaviors'] = detected_behaviors
         else:
             print("  No significant behaviors detected")
 
     def advanced_entropy_analysis(self):
-        """Perform advanced entropy analysis across the entire file"""
+        """Analyze entropy across the whole file to find suspicious areas"""
         self.header("ADVANCED ENTROPY ANALYSIS")
         
-        # Analyze entropy in chunks
+        # Analyze in chunks
         chunk_size = 4096
         chunks = []
         
@@ -1481,7 +1466,7 @@ class MalwareAnalyzerPro:
             if len(high_entropy_regions) > 10:
                 print(f"    ... and {len(high_entropy_regions)-10} more")
         
-        # Look for entropy patterns
+        # Look for entropy changes
         entropy_trend = []
         for i in range(1, len(chunks)):
             diff = chunks[i]['entropy'] - chunks[i-1]['entropy']
@@ -1503,14 +1488,13 @@ class MalwareAnalyzerPro:
         }
 
     def yara_scan(self, rules_dir: Optional[str] = None):
-        """Scan file with YARA rules"""
+        """Scan the file with YARA rules"""
         if not YARA_AVAILABLE:
             print("  YARA not available - skipping scan")
             return
         
         self.header("YARA RULE SCAN")
         
-        # Use provided rules directory or default
         if not rules_dir:
             rules_dir = self.config.get('yara_rules_dir', 'yara_rules')
         
@@ -1519,7 +1503,7 @@ class MalwareAnalyzerPro:
             print(f"  YARA rules directory not found: {rules_dir}")
             return
         
-        # Find all .yar/.yara files
+        # Find all rule files
         rule_files = list(rules_path.glob('**/*.yar')) + list(rules_path.glob('**/*.yara'))
         
         if not rule_files:
@@ -1558,12 +1542,10 @@ class MalwareAnalyzerPro:
                         if 'severity' in match.meta:
                             print(f"    Severity: {match.meta['severity']}")
                     
-                    # Show matched strings
                     print(f"    Matched strings:")
                     for string in match.strings[:5]:
                         print(f"      - {string}")
                     
-                    # Store matches
                     self.results['yara_matches'].append({
                         'rule': match.rule,
                         'meta': match.meta if hasattr(match, 'meta') else {},
@@ -1577,10 +1559,10 @@ class MalwareAnalyzerPro:
             logger.debug(f"YARA error: {e}")
 
     def ml_classification(self):
-        """Machine learning-based classification with feature extraction"""
+        """Use machine learning features to classify the file"""
         self.header("ML-BASED CLASSIFICATION")
         
-        # Extract features for classification
+        # Extract features
         features = {
             'section_count': 0,
             'import_count': 0,
@@ -1600,18 +1582,15 @@ class MalwareAnalyzerPro:
         if self.pe:
             features['section_count'] = len(self.pe.sections)
             
-            # Count imports
             if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
                 import_count = 0
                 for entry in self.pe.DIRECTORY_ENTRY_IMPORT:
                     import_count += len(entry.imports)
                 features['import_count'] = import_count
             
-            # Check for exports
             if hasattr(self.pe, 'DIRECTORY_ENTRY_EXPORT'):
                 features['export_count'] = len(self.pe.DIRECTORY_ENTRY_EXPORT.symbols)
             
-            # Check resources
             if hasattr(self.pe, 'DIRECTORY_ENTRY_RESOURCE'):
                 resource_count = 0
                 for entry in self.pe.DIRECTORY_ENTRY_RESOURCE.entries:
@@ -1619,11 +1598,10 @@ class MalwareAnalyzerPro:
                         resource_count += len(entry_type.directory.entries)
                 features['resource_count'] = resource_count
             
-            # Check certificates
             features['has_certificate'] = hasattr(self.pe, 'DIRECTORY_ENTRY_SECURITY')
             features['has_tls'] = hasattr(self.pe, 'DIRECTORY_ENTRY_TLS')
         
-        # Calculate entropy features
+        # Calculate entropy
         if self.results.get('sections'):
             entropies = [s['entropy'] for s in self.results['sections'] if 'entropy' in s]
             if entropies:
@@ -1638,51 +1616,39 @@ class MalwareAnalyzerPro:
         
         # Count anti-analysis techniques
         features['anti_analysis_count'] = len(self.results.get('anti_analysis', []))
-        
-        # Count total indicators
         features['total_indicators'] = len(self.results.get('indicators', []))
         
-        # Calculate risk score based on features
+        # Calculate risk score
         risk_score = 0
         
-        # Packing increases risk
         if features['is_packed']:
             risk_score += 25
         
-        # Suspicious imports
         if features['suspicious_import_count'] > 0:
             risk_score += min(30, features['suspicious_import_count'] * 3)
         
-        # High entropy
         if features['average_entropy'] > 7.5:
             risk_score += 20
         
-        # No certificate
         if not features['has_certificate']:
             risk_score += 10
         
-        # Low import count (packing indicator)
         if features['import_count'] < 15:
             risk_score += 15
         
-        # TLS callbacks (suspicious)
         if features['has_tls']:
             risk_score += 15
         
-        # Anti-analysis techniques
         risk_score += min(20, features['anti_analysis_count'] * 3)
-        
-        # Indicators
         risk_score += min(30, features['total_indicators'] * 2)
         
-        # Multiple MZ headers
         mz_count = len(re.findall(b'MZ', self.data))
         if mz_count > 5:
             risk_score += min(20, mz_count)
         
         risk_score = min(100, risk_score)
         
-        # Classification
+        # Classify
         classification = "LOW RISK"
         if risk_score >= 80:
             classification = "CRITICAL THREAT"
@@ -1693,11 +1659,10 @@ class MalwareAnalyzerPro:
         elif risk_score >= 20:
             classification = "LOW THREAT"
         
-        # Update results with consistent risk score
         self.results['risk_score'] = risk_score
         self.results['classification'] = classification
         
-        # Display results
+        # Show results
         print(f"  Risk Score: {risk_score}/100")
         print(f"  Classification: {classification}")
         print(f"\n  Feature Vector:")
@@ -1713,12 +1678,11 @@ class MalwareAnalyzerPro:
         return risk_score, classification
 
     def comprehensive_report(self):
-        """Generate comprehensive analysis report with consistent scoring"""
+        """Generate a final summary report"""
         print("\n" + "="*80)
         print("  COMPREHENSIVE ANALYSIS SUMMARY")
         print("="*80)
         
-        # Get consistent risk score
         if self.results.get('ml_classification'):
             risk_score = self.results['ml_classification'].get('risk_score', 0)
             classification = self.results['ml_classification'].get('classification', 'Unknown')
@@ -1726,7 +1690,6 @@ class MalwareAnalyzerPro:
             risk_score = self.results.get('risk_score', 0)
             classification = self.results.get('classification', 'Unknown')
         
-        # Ensure results are updated
         self.results['risk_score'] = risk_score
         self.results['classification'] = classification
         
@@ -1774,7 +1737,7 @@ class MalwareAnalyzerPro:
             if len(self.results['yara_matches']) > 5:
                 print(f"    ... and {len(self.results['yara_matches'])-5} more")
         
-        # Recommendations based on risk score
+        # Recommendations
         print(f"\n  RECOMMENDATIONS:")
         if risk_score >= 80:
             print("    [CRITICAL] This file is highly suspicious. DO NOT execute.")
@@ -1821,7 +1784,7 @@ class MalwareAnalyzerPro:
             print("\n  [QUICK MODE] - Running fast analysis only")
         
         try:
-            # Run all analysis modules
+            # All the analysis functions to run
             modules = [
                 self.basic_info,
                 self.pe_rich_header,
@@ -1844,7 +1807,6 @@ class MalwareAnalyzerPro:
             ]
             
             if not self.quick_mode:
-                # Run all modules
                 for module in modules:
                     try:
                         module()
@@ -1852,7 +1814,7 @@ class MalwareAnalyzerPro:
                         print(f"  [WARNING] Module {module.__name__} failed: {e}")
                         logger.warning(f"Module {module.__name__} failed: {e}")
             else:
-                # Run only essential modules in quick mode
+                # Quick mode - only essential modules
                 quick_modules = [
                     self.basic_info,
                     self.section_analysis,
@@ -1873,11 +1835,11 @@ class MalwareAnalyzerPro:
             logger.error(f"Analysis error: {e}", exc_info=True)
 
     def export_json(self, output_path: Optional[str] = None):
-        """Export analysis results to JSON"""
+        """Save analysis results as JSON"""
         if not output_path:
             output_path = f"analysis_{self.filename}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
-        # Clean up results for JSON serialization
+        # Clean up for JSON
         json_results = {
             'file': {
                 'name': self.filename,
@@ -1905,7 +1867,6 @@ class MalwareAnalyzerPro:
             }
         }
         
-        # Write JSON
         with open(output_path, 'w') as f:
             json.dump(json_results, f, indent=2, default=str)
         
@@ -1913,7 +1874,7 @@ class MalwareAnalyzerPro:
         return output_path
 
 def main():
-    """Main entry point with command line arguments"""
+    """Main entry point"""
     parser = argparse.ArgumentParser(
         description='Malware Analyzer Pro v3.1 - Advanced PE Analysis Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1927,7 +1888,7 @@ Examples:
     )
     
     parser.add_argument('file', help='PE file to analyze')
-    parser.add_argument('--quick', action='store_true', help='Run quick analysis (skip resource-heavy modules)')
+    parser.add_argument('--quick', action='store_true', help='Run quick analysis')
     parser.add_argument('--export-json', metavar='PATH', help='Export results to JSON file')
     parser.add_argument('--output-dir', default='reports', help='Output directory for reports')
     parser.add_argument('--yara-rules', default='yara_rules', help='Directory containing YARA rules')
@@ -1940,11 +1901,11 @@ Examples:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create timestamped log file
+    # Create log file
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = output_dir / f"analysis_{Path(args.file).stem}_{timestamp}.txt"
     
-    # Setup dual output (console + file)
+    # Setup both console and file output
     class Tee:
         def __init__(self, file_path):
             self.terminal = sys.stdout
@@ -1964,11 +1925,9 @@ Examples:
             if self.log:
                 self.log.close()
     
-    # Redirect stdout
     sys.stdout = Tee(log_file)
     
     try:
-        # Configure analyzer
         config = {
             'quick_mode': args.quick,
             'verbose': args.verbose,
@@ -1976,13 +1935,9 @@ Examples:
             'output_dir': args.output_dir
         }
         
-        # Create analyzer instance
         analyzer = MalwareAnalyzerPro(args.file, config)
-        
-        # Run analysis
         analyzer.run_analysis()
         
-        # Export JSON if requested
         if args.export_json:
             if args.export_json == 'PATH':
                 json_path = output_dir / f"analysis_{Path(args.file).stem}_{timestamp}.json"
@@ -2004,7 +1959,6 @@ Examples:
             traceback.print_exc()
         sys.exit(1)
     finally:
-        # Restore stdout
         if hasattr(sys.stdout, 'log') and sys.stdout.log:
             sys.stdout.log.close()
         if hasattr(sys.stdout, 'terminal'):
